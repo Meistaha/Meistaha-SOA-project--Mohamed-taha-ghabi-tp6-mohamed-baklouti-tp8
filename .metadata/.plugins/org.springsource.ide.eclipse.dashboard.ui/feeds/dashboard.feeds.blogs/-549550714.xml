@@ -1,0 +1,406 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Spring]]></title><description><![CDATA[Level up your Java code and explore what Spring can do for you.]]></description><link>https://spring.io</link><generator>GatsbyJS</generator><lastBuildDate>Sun, 28 Dec 2025 00:46:04 GMT</lastBuildDate><item><title><![CDATA[Evolving Spring Vault: Introducing VaultClient]]></title><link>https://spring.io/blog/2025/12/26/evolving-spring-vault</link><guid isPermaLink="true">https://spring.io/blog/2025/12/26/evolving-spring-vault</guid><dc:creator><![CDATA[mp911de]]></dc:creator><pubDate>Fri, 26 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Back in September 2016, nearly a decade ago now, we introduced Spring Vault as a integration layer for HashiCorp Vault within Spring applications, complemented by Spring Cloud Vault for Spring Boot arrangements. The core idea has always been straightforward: Externalizing secrets to encrypted Vault storage to reduce application-side complexity considerably, especially by leveraging Vault&apos;s secure primitives for communication and authentication.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;VaultTemplate&lt;/code&gt; and its reactive counterpart &lt;code&gt;ReactiveVaultTemplate&lt;/code&gt; have served us well, providing a familiar Java-based programming interface for interacting with Vault&apos;s various secrets engines (Key/Value, PKI, Transit, Transform, and Wrapping support). The use of relative paths has been a key design element here, allowing the client to handle environment-specific configuration details while applications focus on the actual secrets being stored and retrieved.&lt;/p&gt;
+&lt;h2 id=&quot;revisiting-the-template-api-design&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#revisiting-the-template-api-design&quot; aria-label=&quot;revisiting the template api design permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Revisiting the Template API Design&lt;/h2&gt;
+&lt;p&gt;As with any API that evolves over time, we accumulated quite some functionality in the Template-based approach. Implementations build on top of &lt;code&gt;RestTemplate&lt;/code&gt; for synchronous operations and &lt;code&gt;WebClient&lt;/code&gt; for reactive scenarios, configured with a &lt;code&gt;UriBuilderFactory&lt;/code&gt; and &lt;code&gt;VaultEndpointProvider&lt;/code&gt; to determine the target Vault server.&lt;/p&gt;
+&lt;p&gt;While engine-specific APIs enforce path prefixes and prevent absolute path usage, the generic &lt;code&gt;VaultTemplate.read()&lt;/code&gt;/&lt;code&gt;.write()&lt;/code&gt; methods along with &lt;code&gt;doWithVault()&lt;/code&gt;/&lt;code&gt;doWithSession()&lt;/code&gt; callbacks operate typically on opaque path strings. Without introspecting each string (which isn&apos;t practical) there&apos;s no way to guarantee whether a given call targets a relative path within the configured Vault instance or represents an absolute URI to a an entirely different server. This isn&apos;t ideal from a security perspective.&lt;/p&gt;
+&lt;p&gt;There&apos;s another aspect worth considering: Callback methods expose the raw HTTP client directly, which fundamentally shifts abstraction levels from logical Vault operations down to HTTP-oriented request handling. While this design serves a escape hatch for low-level operations that are not covered by the Template API, it requires a context switch for application developers in terms of abstraction level. It demands a much higher degree of security awareness than should be necessary. A well-designed client library should guide developers toward secure usage patterns by default, catching unintended operations early rather than silently executing them.&lt;/p&gt;
+&lt;p&gt;These observations led us to reconsider the client architecture. The &lt;a href=&quot;https://poutsma-principles.com/blog/2025/06/03/fluent-apis-overview/&quot;&gt;fluent&lt;/a&gt;, functional style embraced in modern Spring Framework components, particularly in the HTTP client evolution, provided clear inspiration for how a revised Vault client could look. A fluent API naturally reduces method proliferation on any given type while guiding developers through the component&apos;s intended usage patterns.&lt;/p&gt;
+&lt;p&gt;It&apos;s worth noting that &lt;code&gt;VaultTemplate&lt;/code&gt; was built on &lt;code&gt;RestTemplate&lt;/code&gt;, while &lt;code&gt;ReactiveVaultTemplate&lt;/code&gt; has always used the fluent &lt;code&gt;WebClient&lt;/code&gt; which itself reinforced the benefits of a fluent design approach for Vault interactions.&lt;/p&gt;
+&lt;h2 id=&quot;introducing-vaultclient&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#introducing-vaultclient&quot; aria-label=&quot;introducing vaultclient permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Introducing VaultClient&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;VaultClient&lt;/code&gt; and &lt;code&gt;ReactiveVaultClient&lt;/code&gt; draw heavily from the &lt;code&gt;RestClient&lt;/code&gt; and &lt;code&gt;WebClient&lt;/code&gt; design primitives, enriching the fluent interface with Vault-specific concerns. If you&apos;re familiar with either of those clients, you&apos;ll feel right at home with &lt;code&gt;VaultClient&lt;/code&gt;. Spring Vault 4.1 is an opportunity to introduce this new client architecture and elevate all Spring Vault functionality onto a more refined foundation.&lt;/p&gt;
+&lt;p&gt;The new &lt;code&gt;VaultClient&lt;/code&gt; provides an intermediate abstraction layer enforcing relative path handling at its core, preventing unintended absolute path usage when configured with for a &lt;code&gt;VaultEndpoint&lt;/code&gt;:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;VaultClient client = VaultClient.create(VaultEndpoint.create(&quot;vault.example.com&quot;, 8200));
+
+VaultResponse response = client.get()
+    .path(&quot;secret/my-secret&quot;)
+    .token(VaultToken.of(…))
+    .namespace(…)
+    .retrieve()
+    .requiredBody();
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Internally, &lt;code&gt;VaultClient&lt;/code&gt; leverages &lt;code&gt;RestClient&lt;/code&gt; with its connector infrastructure for SSL configuration, timeouts, retry handling, and other client concerns, while URL construction remains firmly within &lt;code&gt;VaultClient&lt;/code&gt; itself. The synchronous as well as the reactive clients consistently throw &lt;code&gt;VaultClientResponseException&lt;/code&gt;, a subclass of the generic &lt;code&gt;VaultException&lt;/code&gt;, providing proper access to HTTP status codes, response headers, and error response bodies.&lt;/p&gt;
+&lt;p&gt;Most &lt;code&gt;ClientAuthentication&lt;/code&gt; implementations require some form of Vault interaction to perform login operations. Typically, these implementations work directly with &lt;code&gt;RestTemplate&lt;/code&gt; (or &lt;code&gt;WebClient&lt;/code&gt; for &lt;code&gt;AuthenticationStepsOperator&lt;/code&gt;). Cloud-specific authentication mechanisms such as GCP Compute, Azure MSI Instance Metadata also needed a &lt;code&gt;RestTemplate&lt;/code&gt; to communicate with their respective platform services. Using the same client type for both Vault operations and platform-specific calls created potential for mixing up client instances, leading to requests being dispatched through improper channels.&lt;/p&gt;
+&lt;p&gt;Having a distinguished Vault client type eliminates an entire category of potential bugs.&lt;/p&gt;
+&lt;h2 id=&quot;migration-considerations&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#migration-considerations&quot; aria-label=&quot;migration considerations permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Migration Considerations&lt;/h2&gt;
+&lt;p&gt;Introducing &lt;code&gt;VaultClient&lt;/code&gt; is a step toward a more refined Spring Vault design. This change comes with deprecations of constructors and support classes operating at the &lt;code&gt;RestOperations&lt;/code&gt; API level in favor of &lt;code&gt;VaultClient&lt;/code&gt; and &lt;code&gt;ReactiveVaultClient&lt;/code&gt; variants.&lt;/p&gt;
+&lt;p&gt;This revision happens also in preparation for Spring Framework&apos;s planned &lt;code&gt;RestTemplate&lt;/code&gt; deprecation in Spring Framework 7.1, as we&apos;ve outlined in our recent &lt;a href=&quot;https://spring.io/blog/2025/09/30/the-state-of-http-clients-in-spring#the-future-of-http-clients-in-spring&quot;&gt;HTTP clients roadmap&lt;/a&gt;. The configuration infrastructure both in Spring Vault and Spring Cloud Vault continues for the time being to use &lt;code&gt;RestTemplate&lt;/code&gt; alongside Spring Vault&apos;s &lt;code&gt;RestTemplateCustomizer&lt;/code&gt;, with an additional &lt;code&gt;VaultClientCustomizer&lt;/code&gt; now available. We will gradually migrate off &lt;code&gt;RestTemplate&lt;/code&gt; towards &lt;code&gt;RestClient&lt;/code&gt; and removal of deprecated API at a later stage.&lt;/p&gt;
+&lt;p&gt;We recommend migrating Vault-specific customizations from &lt;code&gt;RestTemplateCustomizer&lt;/code&gt; to &lt;code&gt;VaultClientCustomizer&lt;/code&gt;, while moving general HTTP client customizations to &lt;code&gt;RestClientCustomizer&lt;/code&gt; (or their reactive equivalents as appropriate).&lt;/p&gt;
+&lt;p&gt;We are working towards providing dedicated interfaces for operations with the underlying &lt;code&gt;VaultClient&lt;/code&gt; client, to cover Vault functionality not directly exposed through the Template API as direct replacements for &lt;code&gt;doWithVault()&lt;/code&gt;/&lt;code&gt;doWithSession()&lt;/code&gt; callback methods.&lt;/p&gt;
+&lt;h2 id=&quot;whats-next&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#whats-next&quot; aria-label=&quot;whats next permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;What&apos;s next?&lt;/h2&gt;
+&lt;p&gt;We&apos;re exploring several integrations for stateful components that would benefit from a Vault integration.
+For example, Vault&apos;s PKI secrets engine can serve as certificate authority for Spring Boot&apos;s SSL bundles, providing both trust anchors and certificate issuance for embedded web servers without the need to deploy certificates as files but rather obtaining certificates directly from Vault instead.&lt;/p&gt;
+&lt;p&gt;Another idea worth exploring is credentials rotation for database connections that presents a broad range of arrangements such as updating credentials for a pooling component or rotation of data sources.&lt;/p&gt;
+&lt;p&gt;As always, we &lt;a href=&quot;https://github.com/spring-projects/spring-vault/issues&quot;&gt;welcome feedback&lt;/a&gt; on these directions as Spring Vault evolves.&lt;/p&gt;</content:encoded></item><item><title><![CDATA[A Bootiful Podcast: Nate Schutta the fundamentals of software engineering]]></title><link>https://spring.io/blog/2025/12/25/a-bootiful-podcast-nate-schutta</link><guid isPermaLink="true">https://spring.io/blog/2025/12/25/a-bootiful-podcast-nate-schutta</guid><dc:creator><![CDATA[joshlong]]></dc:creator><pubDate>Thu, 25 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Hi Spring fans, and happy holidays! I&apos;m delighted to be joined again on this episode by my friend and fellow harbinger of doom (in the best possible way), Nate Schutta — co-author of the wonderful book &lt;a href=&quot;https://www.oreilly.com/library/view/fundamentals-of-software/9781098143220/&quot;&gt;&lt;em&gt;Foundations of Software Engineering&lt;/em&gt;&lt;/a&gt;!&lt;/p&gt;
+&lt;iframe title=&quot;the legendary Nate Schutta, teacher, friend, and.. harbinger of doom!&quot; allowtransparency=&quot;true&quot; height=&quot;300&quot; width=&quot;100%&quot; style=&quot;border: none; min-width: min(100%, 430px);height:300px;&quot; scrolling=&quot;no&quot; data-name=&quot;pb-iframe-player&quot; src=&quot;https://www.podbean.com/player-v2/?from=embed&amp;i=7vry7-1a004c3-pb&amp;square=1&amp;share=1&amp;download=1&amp;fonts=Arial&amp;skin=1&amp;font-color=&amp;rtl=0&amp;logo_link=&amp;btn-skin=7&amp;size=300&quot; loading=&quot;lazy&quot; allowfullscreen=&quot;&quot;&gt;&lt;/iframe&gt;</content:encoded></item><item><title><![CDATA[This Week in Spring – December 23rd, 2025]]></title><link>https://spring.io/blog/2025/12/23/this-week-in-spring-december-23rd-2025</link><guid isPermaLink="true">https://spring.io/blog/2025/12/23/this-week-in-spring-december-23rd-2025</guid><dc:creator><![CDATA[joshlong]]></dc:creator><pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;p&gt;Happy holidays, everyone! The year may be winding down, but the Spring ecosystem continues unabated. We’re now a few weeks past the generational Spring Boot 4.0 release in November, and there have been tons of releases (and patches) since then. There’s also equal excitement reflected in posts from the community, so we’ve got a lot to dig into this week. So, without further ado…&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;In last week’s installment of &lt;em&gt;A Bootiful Podcast&lt;/em&gt;, I talked to the legendary Spring cofounder Juergen Hoeller&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/18/a-bootiful-podcast-juergen-hoeller&quot;&gt;https://spring.io/blog/2025/12/18/a-bootiful-podcast-juergen-hoeller&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Next-level Kotlin support in Spring Boot 4&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/18/next-level-kotlin-support-in-spring-boot-4&quot;&gt;https://spring.io/blog/2025/12/18/next-level-kotlin-support-in-spring-boot-4&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Shell 4.0.0-RC1 available now&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/19/spring-shell-4-0-0-rc1-released&quot;&gt;https://spring.io/blog/2025/12/19/spring-shell-4-0-0-rc1-released&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Modulith 2.0.1, 1.4.6, and 1.3.12 released&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/20/spring-modulith-2-0-1-1-4-6-and-1-3-12-released&quot;&gt;https://spring.io/blog/2025/12/20/spring-modulith-2-0-1-1-4-6-and-1-3-12-released&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Tools 5 released&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/22/spring-tools-5-0-1-released&quot;&gt;https://spring.io/blog/2025/12/22/spring-tools-5-0-1-released&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Explainable AI agents: capture LLM tool-call reasoning with Spring AI&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/23/spring-ai-tool-argument-augmenter-tzolov/&quot;&gt;https://spring.io/blog/2025/12/23/spring-ai-tool-argument-augmenter-tzolov/&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Boot 3.4.13 available now&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/18/spring-boot-3-4-13-available-now&quot;&gt;https://spring.io/blog/2025/12/18/spring-boot-3-4-13-available-now&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Boot 4.0.1 available now&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/18/spring-boot-4-0-1-available-now&quot;&gt;https://spring.io/blog/2025/12/18/spring-boot-4-0-1-available-now&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Boot 3.5.9 available now&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/18/spring-boot-3-5-9-available-now&quot;&gt;https://spring.io/blog/2025/12/18/spring-boot-3-5-9-available-now&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Batch 6.0.1 available now&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/17/spring-batch-6-0-1-available-now&quot;&gt;https://spring.io/blog/2025/12/17/spring-batch-6-0-1-available-now&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Authorization Server 2025.12 released&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/16/spring-authorization-server-releases&quot;&gt;https://spring.io/blog/2025/12/16/spring-authorization-server-releases&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Cloud 2025.0.1 (aka Northfields) has been released&lt;br&gt;
+&lt;a href=&quot;https://spring.io/blog/2025/12/17/spring-cloud-2025-0-1-aka-northfields-has-been-released&quot;&gt;https://spring.io/blog/2025/12/17/spring-cloud-2025-0-1-aka-northfields-has-been-released&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring Boot 4: the 7 breaking changes every developer must know&lt;br&gt;
+&lt;a href=&quot;https://medium.com/@pmLearners/spring-boot-4-the-7-breaking-changes-every-developer-must-know-99de4c2b60e2&quot;&gt;https://medium.com/@pmLearners/spring-boot-4-the-7-breaking-changes-every-developer-must-know-99de4c2b60e2&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;This is interesting: event-driven microservices with Orkes Conductor&lt;br&gt;
+&lt;a href=&quot;https://www.baeldung.com/orkes-conductor-guide&quot;&gt;https://www.baeldung.com/orkes-conductor-guide&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Spring date values with Spring Data Cassandra&lt;br&gt;
+&lt;a href=&quot;https://www.baeldung.com/spring-data-cassandra-dates&quot;&gt;https://www.baeldung.com/spring-data-cassandra-dates&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;I love this session on optimizing JVM performance with Leyden and Spring Boot&lt;br&gt;
+&lt;a href=&quot;https://www.youtube.com/watch?v=izLzgnMMjbU&quot;&gt;https://www.youtube.com/watch?v=izLzgnMMjbU&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Want to build quickly? You’re going to need a platform!&lt;br&gt;
+&lt;a href=&quot;https://blogs.vmware.com/tanzu/tanzu-platform-still-the-best-place-for-enterprise-java-apps/&quot;&gt;https://blogs.vmware.com/tanzu/tanzu-platform-still-the-best-place-for-enterprise-java-apps/&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;The Spring Boot governance starter&lt;br&gt;
+&lt;a href=&quot;https://youtube.com/shorts/Gi3L9lVKUzw?si=lCEru6DD8q5wx60V&quot;&gt;https://youtube.com/shorts/Gi3L9lVKUzw?si=lCEru6DD8q5wx60V&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;I love this post on API versioning with Spring&lt;br&gt;
+&lt;a href=&quot;https://www.baeldung.com/spring-api-versioning&quot;&gt;https://www.baeldung.com/spring-api-versioning&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;Yet another nice post from Piotr, this time on gRPC in Spring Boot using the new Spring gRPC support&lt;br&gt;
+&lt;a href=&quot;https://piotrminkowski.com/2025/12/15/grpc-spring/&quot;&gt;https://piotrminkowski.com/2025/12/15/grpc-spring/&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;MCP elicitations with Java and Spring AI&lt;br&gt;
+&lt;a href=&quot;https://builder.aws.com/content/36lU1MoMHb7tgVSbS3WTX5t6s31/mcp-elicitations-with-java-and-spring-ai&quot;&gt;https://builder.aws.com/content/36lU1MoMHb7tgVSbS3WTX5t6s31/mcp-elicitations-with-java-and-spring-ai&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;This is a Spring Boot starter maintained by the community that makes using SSE even easier&lt;br&gt;
+&lt;a href=&quot;https://github.com/kusoroadeolu/streamline-spring-boot-starter&quot;&gt;https://github.com/kusoroadeolu/streamline-spring-boot-starter&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content:encoded></item><item><title><![CDATA[Explainable AI Agents: Capture LLM Tool Call Reasoning with Spring AI]]></title><link>https://spring.io/blog/2025/12/23/spring-ai-tool-argument-augmenter-tzolov</link><guid isPermaLink="true">https://spring.io/blog/2025/12/23/spring-ai-tool-argument-augmenter-tzolov</guid><dc:creator><![CDATA[tzolov]]></dc:creator><pubDate>Tue, 23 Dec 2025 00:00:00 GMT</pubDate><content:encoded>&lt;img style=&quot;display: block; margin: 5px auto; padding: 10px;&quot; src=&quot;https://raw.githubusercontent.com/spring-io/spring-io-static/refs/heads/main/blog/tzolov/20251217/spring-ai-tool-argument-augment-lifecycle.png&quot; width=&quot;290&quot; align=&quot;right&quot;&gt;
+&lt;p&gt;When building AI agents with tool calling capabilities, developers often need insights into &lt;strong&gt;why&lt;/strong&gt; an LLM chose a particular tool—not just which tool it selected. Understanding the model&apos;s reasoning process is important for debugging, observability, and building trustworthy AI systems.&lt;/p&gt;
+&lt;p&gt;Spring AI now (2.0.0-SNAPSHOT/1.1.3-SNAPSHOT) includes the &lt;a href=&quot;https://docs.spring.io/spring-ai/reference/2.0-SNAPSHOT/api/tools.html#tool-argument-augmentation&quot;&gt;Tool Argument Augmenter&lt;/a&gt; feature that enables &lt;strong&gt;dynamic augmentation of tool input schemas&lt;/strong&gt; with additional arguments before sending tool definitions to the LLM. This allows AI applications to capture extra information from the model—such as reasoning, inner thoughts, confidence levels, or metadata—that can be used by the application itself without affecting the underlying tool implementation.&lt;/p&gt;
+&lt;p&gt;This technique is useful for:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Memory Enhancement&lt;/strong&gt;: Capture the LLM&apos;s internal reasoning and insights to store in long-term memory—these &quot;inner thoughts&quot; become valuable context that improves the model&apos;s reasoning capabilities across extended conversations&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Observability &amp;#x26; Debugging&lt;/strong&gt;: Capture the LLM&apos;s step-by-step reasoning before each tool execution&lt;/li&gt;
+&lt;/ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;? Quick Start and Demo&lt;/strong&gt;: For a quick start, jump directly to the &lt;a href=&quot;#quick-start&quot;&gt;Quick Start&lt;/a&gt; section below. For a complete working example, check out the &lt;a href=&quot;https://github.com/spring-projects/spring-ai-examples/tree/main/advisors/tool-argument-augmenter-demo&quot;&gt;tool-argument-augmenter-demo&lt;/a&gt; demo project and reference documentation: &lt;a href=&quot;https://docs.spring.io/spring-ai/reference/2.0-SNAPSHOT/api/tools.html#tool-argument-augmentation&quot;&gt;Tool Argument Augmentation&lt;/a&gt;.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h4 id=&quot;tool-calling&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#tool-calling&quot; aria-label=&quot;tool calling permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Tool Calling&lt;/h4&gt;
+&lt;p&gt;The &lt;a href=&quot;https://docs.spring.io/spring-ai/reference/api/tools.html&quot;&gt;Tool calling&lt;/a&gt; (also known as function calling) allows LLMs to request the execution of external functions or APIs when they need to perform actions or retrieve information beyond their training data.
+The Spring AI Tool Calling flow when using the &lt;code&gt;ToolCallAdvisor&lt;/code&gt; is:&lt;/p&gt;
+&lt;img style=&quot;display: block; margin: auto;&quot; src=&quot;https://raw.githubusercontent.com/spring-io/spring-io-static/refs/heads/main/blog/tzolov/20251217/spring-ai-sdt-tool-calling.png&quot; width=&quot;510&quot; align=&quot;right&quot;&gt;
+&lt;ol&gt;
+&lt;li&gt;User asks a question&lt;/li&gt;
+&lt;li&gt;Spring AI&apos;s Tool Call Advisor sends available tool definitions with their original schemas to the LLM&lt;/li&gt;
+&lt;li&gt;LLM analyzes the request, decides which tool to call, and returns a tool call request with required arguments&lt;/li&gt;
+&lt;li&gt;Tool Management dispatches and invokes the actual tool&lt;/li&gt;
+&lt;li&gt;Result is sent back to the LLM&lt;/li&gt;
+&lt;li&gt;LLM generates the final response incorporating the tool&apos;s result&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h4 id=&quot;the-problem&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#the-problem&quot; aria-label=&quot;the problem permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;The Problem&lt;/h4&gt;
+&lt;p&gt;Tools are defined with fixed input parameters, but AI applications often need &lt;strong&gt;additional context or metadata&lt;/strong&gt; from the LLM—such as reasoning or insights—alongside standard tool inputs. These extra fields are needed by the application layer, not the tool itself. Modifying every tool to accept them would violate separation of concerns, create tight coupling, and require changes across many existing tools or even be impossible for external (MCP) tools.&lt;/p&gt;
+&lt;h4 id=&quot;the-tool-argument-augmenter-solution&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#the-tool-argument-augmenter-solution&quot; aria-label=&quot;the tool argument augmenter solution permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;The Tool Argument Augmenter Solution&lt;/h4&gt;
+&lt;p&gt;The Tool Argument Augmenter solves this elegantly by:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Dynamically extending&lt;/strong&gt; the tool&apos;s JSON Schema with additional fields (defined as Java Records)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Intercepting tool calls&lt;/strong&gt; to extract and process the augmented arguments&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Optionally removing&lt;/strong&gt; the augmented arguments before passing input to the original tool&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;This creates a transparent layer where the LLM sees an augmented schema and provides the extra information used by the AI application, while the underlying tool remains unchanged.
+The complete flow works as follows:&lt;/p&gt;
+&lt;img style=&quot;display: block; margin: auto;&quot; src=&quot;https://raw.githubusercontent.com/spring-io/spring-io-static/refs/heads/main/blog/tzolov/20251217/spring-ai-tool-arg-augmenter.png&quot; width=&quot;800&quot;&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;User Request:&lt;/strong&gt; User asks &quot;What to wear in Amsterdam today?&quot;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tool Definition:&lt;/strong&gt; Tool Call Advisor adds the tool definitions with their original schemas to the request&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tool Definition Interception:&lt;/strong&gt; Before being sent to the LLM, the Tool Argument Augmenter intercepts the tool definition and augments its schema with additional (provided) arguments (e.g., &lt;code&gt;innerThoughts: String&lt;/code&gt;, &lt;code&gt;memoryNotes: List&amp;#x3C;String&gt;&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;LLM Response:&lt;/strong&gt; The LLM sees this enriched schema and provides both the original tool arguments (&lt;code&gt;location: &quot;Amsterdam&quot;&lt;/code&gt;) AND the augmented arguments (&lt;code&gt;innerThoughts: &quot;I need to check the weather to suggest appropriate clothing...&quot;&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Argument Processing&lt;/strong&gt;: When the tool call request returns, the augmenter extracts the augmented arguments and passes them to a &lt;strong&gt;Consumer&lt;/strong&gt; for processing (logging, memory storage, analytics, etc.)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tool Execution&lt;/strong&gt;: The original tool receives only its expected arguments—completely unaware of the augmentation&lt;/li&gt;
+&lt;/ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;MCP Compatible:&lt;/strong&gt; This technique works seamlessly with both local tools (e.g., &lt;code&gt;@Tool&lt;/code&gt;) and MCP tools (e.g., &lt;code&gt;@McpTool&lt;/code&gt;).&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2 id=&quot;quick-start&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#quick-start&quot; aria-label=&quot;quick start permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Quick Start&lt;/h2&gt;
+&lt;h4 id=&quot;requirements&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#requirements&quot; aria-label=&quot;requirements permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Requirements&lt;/h4&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Java 17&lt;/strong&gt; or higher&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Spring AI 2.0.0-SNAPSHOT+&lt;/strong&gt; or &lt;strong&gt;Spring AI 1.1.3-SNAPSHOT+&lt;/strong&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The Tool Argument Augmenter is included in Spring AI&apos;s core module (&lt;code&gt;spring-ai-model&lt;/code&gt;), so no additional dependencies are required beyond the standard Spring AI dependency.&lt;/p&gt;
+&lt;h4 id=&quot;1-define-augmented-arguments&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#1-define-augmented-arguments&quot; aria-label=&quot;1 define augmented arguments permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;1. Define Augmented Arguments&lt;/h4&gt;
+&lt;p&gt;The most powerful use case is adding an &quot;inner thinking&quot; field that captures the LLM&apos;s reasoning. Define your augmented arguments as a Java Record with &lt;code&gt;@ToolParam&lt;/code&gt; annotations:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;import org.springframework.ai.tool.annotation.ToolParam;
+
+public record AgentThinking(
+    @ToolParam(description = &quot;Your step-by-step reasoning for why you&apos;re calling this tool and what you expect&quot;, required = true) 
+    String innerThought,
+    
+    @ToolParam(description = &quot;Confidence level (low, medium, high) in this tool choice&quot;, required = false) 
+    String confidence,
+    
+    @ToolParam(description = &quot;Key insights to remember for future interactions&quot;, required = true) 
+    List&amp;#x3C;String&gt; memoryNotes
+) {}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h4 id=&quot;2-wrap-your-existing-tools&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#2-wrap-your-existing-tools&quot; aria-label=&quot;2 wrap your existing tools permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;2. Wrap Your Existing Tools&lt;/h4&gt;
+&lt;p&gt;Use the &lt;code&gt;AugmentedToolCallbackProvider&lt;/code&gt; builder to wrap your existing tools:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;import org.springframework.ai.tool.augment.AugmentedToolCallbackProvider;
+
+// Your existing tool defined using Spring AI @Tool annotation
+public class WeatherTool {
+    @Tool(description = &quot;Get the current weather for a given location&quot;)
+    public String weather(String location) {
+        return &quot;The current weather in &quot; + location + &quot; is sunny with a temperature of 25°C.&quot;;
+    }
+}
+
+// Wrap with augmented arguments
+AugmentedToolCallbackProvider&amp;#x3C;AgentThinking&gt; provider = 
+    AugmentedToolCallbackProvider.&amp;#x3C;AgentThinking&gt;builder()
+        .toolObject(new WeatherTool())
+        .argumentType(AgentThinking.class)
+        .argumentConsumer(event -&gt; {
+            // Access the augmented arguments via event.arguments()
+            AgentThinking thinking = event.arguments();
+            
+            // Log the LLM&apos;s reasoning - great for debugging and observability
+            log.info(&quot;Tool: {}, LLM Reasoning: {}, Confidence: {}&quot;,
+               event.toolDefinition().name(), thinking.innerThought(), thinking.confidence());
+                        
+            // Store insights in memory for future context
+            thinking.memoryNotes().forEach(note -&gt; 
+                memorySystem.store(note)
+            );
+        })
+        .build();
+
+// Use with Spring AI ChatClient
+ChatClient chatClient = ChatClient.builder(chatModel)
+    .defaultToolCallbacks(provider)
+    .build();
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h4 id=&quot;3-wrap-your-existing-toolcallbackproviders&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#3-wrap-your-existing-toolcallbackproviders&quot; aria-label=&quot;3 wrap your existing toolcallbackproviders permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;3. Wrap Your Existing ToolCallbackProviders&lt;/h4&gt;
+&lt;p&gt;You can wrap existing providers (including &lt;code&gt;MCP&lt;/code&gt; tool providers) instead of individual tool objects:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;AugmentedToolCallbackProvider&amp;#x3C;AgentThinking&gt; provider = 
+    AugmentedToolCallbackProvider.&amp;#x3C;AgentThinking&gt;builder()
+        .delegate(existingProvider)  // Wrap an existing provider
+        .argumentType(AgentThinking.class)
+        .argumentConsumer(event -&gt; processThinking(event.arguments()))
+        .build();
+
+// Use with Spring AI ChatClient
+ChatClient chatClient = ChatClient.builder(chatModel)
+    .defaultToolCallbacks(provider)
+    .build();
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h4 id=&quot;4-what-the-llm-sees&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#4-what-the-llm-sees&quot; aria-label=&quot;4 what the llm sees permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;4. What the LLM Sees&lt;/h4&gt;
+&lt;p&gt;When the LLM receives the tool definition, it sees the &lt;strong&gt;augmented schema&lt;/strong&gt; with your additional fields:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-json&quot;&gt;{
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;properties&quot;: {
+    &quot;location&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;The location to get weather for&quot;
+    },
+    &quot;innerThought&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;Your step-by-step reasoning for why you&apos;re calling this tool and what you expect&quot;
+    },
+    &quot;confidence&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;Confidence level (low, medium, high) in this tool choice&quot;
+    },
+    &quot;memoryNotes&quot;: {
+      &quot;type&quot;: &quot;array&quot;,
+      &quot;items&quot;: { &quot;type&quot;: &quot;string&quot; },
+      &quot;description&quot;: &quot;Key insights to remember for future interactions&quot;
+    }
+  },
+  &quot;required&quot;: [&quot;location&quot;, &quot;innerThought&quot;, &quot;memoryNotes&quot;]
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h4 id=&quot;5-llm-response-with-reasoning&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#5-llm-response-with-reasoning&quot; aria-label=&quot;5 llm response with reasoning permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;5. LLM Response with Reasoning&lt;/h4&gt;
+&lt;p&gt;The LLM will now provide its reasoning along with the tool call:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-json&quot;&gt;{
+  &quot;location&quot;: &quot;Amsterdam&quot;,
+  &quot;innerThought&quot;: &quot;The user is asking about what to wear in Amsterdam today. I need to check the current weather conditions to provide appropriate clothing recommendations.&quot;,
+  &quot;confidence&quot;: &quot;high&quot;,
+  &quot;memoryNotes&quot;: [
+    &quot;User is planning an outing in Amsterdam&quot;,
+    &quot;May need follow-up with specific activity questions&quot;
+  ]
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Your consumer receives the &lt;code&gt;AgentThinking&lt;/code&gt; record with all the reasoning, while the original tool receives only &lt;code&gt;{&quot;location&quot;: &quot;Amsterdam&quot;}&lt;/code&gt;.&lt;/p&gt;
+&lt;h4 id=&quot;6-include-reasoning-in-final-response-optional&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#6-include-reasoning-in-final-response-optional&quot; aria-label=&quot;6 include reasoning in final response optional permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;6. Include Reasoning in Final Response (Optional)&lt;/h4&gt;
+&lt;p&gt;You can also include the LLM&apos;s reasoning in the final response using Spring AI&apos;s &lt;a href=&quot;https://docs.spring.io/spring-ai/reference/api/structured-output-converter.html&quot;&gt;Structured Output&lt;/a&gt;. This is useful when you want to expose the model&apos;s thinking to users or downstream systems—not just capture it during tool calls.&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;public record ResponseWithReasoning(
+    String response, 
+    AgentThinking thinking
+) {}
+
+var answer = chatClient
+    .prompt(&quot;What should I wear in Amsterdam today?&quot;)
+    .call()
+    .entity(ResponseWithReasoning.class); // structured response
+
+// Access both the response and the reasoning
+System.out.println(&quot;Answer: &quot; + answer.response());
+System.out.println(&quot;Reasoning: &quot; + answer.thinking().innerThought());
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2 id=&quot;advanced-use-cases&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#advanced-use-cases&quot; aria-label=&quot;advanced use cases permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Advanced Use Cases&lt;/h2&gt;
+&lt;p&gt;You can leverage this technique for various AI agent patterns.
+The following examples demonstrate how to build memory-enhanced agents, capture chain-of-thought reasoning, collect analytics, and coordinate multi-agent systems.&lt;/p&gt;
+&lt;h3 id=&quot;ai-agent-memory-systems&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#ai-agent-memory-systems&quot; aria-label=&quot;ai agent memory systems permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;AI Agent Memory Systems&lt;/h3&gt;
+&lt;p&gt;Combine Tool Argument Augmenter with Spring AI&apos;s advisor chain to build intelligent agents with memory. The captured inner thoughts become valuable context that improves reasoning across conversations:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;import org.springframework.ai.tool.augment.AugmentedToolCallbackProvider;
+
+AugmentedToolCallbackProvider&amp;#x3C;AgentThinking&gt; provider = AugmentedToolCallbackProvider
+    .&amp;#x3C;AgentThinking&gt;builder()
+    .toolObject(new MyTools())
+    .argumentType(AgentThinking.class)
+    .build();
+
+MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
+    .maxMessages(100)
+    .build();
+
+ChatClient chatClient = chatClientBuilder
+    .defaultToolCallbacks(provider)
+    .defaultAdvisors(
+        ToolCallAdvisor.builder()
+            .advisorOrder(BaseAdvisor.HIGHEST_PRECEDENCE + 300)
+            .conversationHistoryEnabled(false).build(),
+        MessageChatMemoryAdvisor.builder(chatMemory)
+            .order(Ordered.HIGHEST_PRECEDENCE + 1000).build())
+    .build();
+
+var answer = chatClient
+    .prompt(&quot;What is current weather in Paris?&quot;)
+    .call()
+    .entity(MyResponse.class);
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This provides &lt;strong&gt;tool-level reasoning capture&lt;/strong&gt;, &lt;strong&gt;conversation continuity&lt;/strong&gt; via memory advisor, and &lt;strong&gt;full observability&lt;/strong&gt; into LLM decision-making.&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Note:&lt;/strong&gt; Disable &lt;code&gt;ToolCallAdvisor&lt;/code&gt;&apos;s conversation history and ensure &lt;code&gt;MessageChatMemoryAdvisor&lt;/code&gt; runs after it in the advisor chain.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h3 id=&quot;chain-of-thought-reasoning&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#chain-of-thought-reasoning&quot; aria-label=&quot;chain of thought reasoning permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Chain of Thought Reasoning&lt;/h3&gt;
+&lt;p&gt;Capture detailed step-by-step reasoning for complex tasks:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;public record ChainOfThought(
+    @ToolParam(description = &quot;Break down your reasoning into numbered steps&quot;, required = true)
+    List&amp;#x3C;String&gt; reasoningSteps,
+    
+    @ToolParam(description = &quot;What alternative approaches did you consider?&quot;, required = false)
+    List&amp;#x3C;String&gt; alternatives,
+    
+    @ToolParam(description = &quot;Final conclusion that led to this tool choice&quot;, required = true)
+    String conclusion
+) {}
+
+// Process the reasoning chain
+Consumer&amp;#x3C;AugmentedArgumentEvent&amp;#x3C;ChainOfThought&gt;&gt; cotProcessor = event -&gt; {
+    ChainOfThought cot = event.arguments();
+    log.info(&quot;=== Chain of Thought for {} ===&quot;, event.toolDefinition().name());
+    for (int i = 0; i &amp;#x3C; cot.reasoningSteps().size(); i++) {
+        log.info(&quot;Step {}: {}&quot;, i + 1, cot.reasoningSteps().get(i));
+    }
+    log.info(&quot;Conclusion: {}&quot;, cot.conclusion());
+    
+    // Store for analysis or fine-tuning data collection
+    reasoningStore.save(cot);
+};
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3 id=&quot;tool-usage-analytics&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#tool-usage-analytics&quot; aria-label=&quot;tool usage analytics permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Tool Usage Analytics&lt;/h3&gt;
+&lt;p&gt;Track and analyze tool usage patterns for optimization and insights:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;public record ToolAnalytics(
+    @ToolParam(description = &quot;Why did you choose this specific tool?&quot;, required = true)
+    String toolSelectionReason,
+    
+    @ToolParam(description = &quot;What result do you expect from this tool?&quot;, required = false)
+    String expectedOutcome,
+    
+    @ToolParam(description = &quot;User intent classification&quot;, required = true)
+    String userIntent
+) {}
+
+Consumer&amp;#x3C;AugmentedArgumentEvent&amp;#x3C;ToolAnalytics&gt;&gt; analyticsProcessor = event -&gt; {
+    ToolAnalytics analytics = event.arguments();
+    String toolName = event.toolDefinition().name();
+    
+    metricsCollector.recordToolSelection(
+        toolName,
+        analytics.userIntent(),
+        analytics.toolSelectionReason()
+    );
+    
+    if (analytics.expectedOutcome() != null) {
+        // Compare expected vs actual outcomes for quality metrics
+        outcomeTracker.recordExpectation(toolName, analytics.expectedOutcome());
+    }
+};
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h3 id=&quot;multi-agent-coordination&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#multi-agent-coordination&quot; aria-label=&quot;multi agent coordination permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Multi-Agent Coordination&lt;/h3&gt;
+&lt;p&gt;Enable communication and coordination between multiple AI agents:&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&quot;language-java&quot;&gt;public record AgentCoordination(
+    @ToolParam(description = &quot;Your agent ID&quot;, required = true)
+    String agentId,
+    
+    @ToolParam(description = &quot;Agents that should be notified of this action&quot;, required = false)
+    List&amp;#x3C;String&gt; notifyAgents,
+    
+    @ToolParam(description = &quot;Shared context for other agents&quot;, required = false)
+    String sharedContext,
+    
+    @ToolParam(description = &quot;Priority level for coordination (low, normal, high, critical)&quot;, required = false)
+    String priority
+) {}
+
+Consumer&amp;#x3C;AugmentedArgumentEvent&amp;#x3C;AgentCoordination&gt;&gt; coordinationProcessor = event -&gt; {
+    AgentCoordination coord = event.arguments();
+    String toolName = event.toolDefinition().name();
+    
+    if (coord.notifyAgents() != null &amp;#x26;&amp;#x26; !coord.notifyAgents().isEmpty()) {
+        Message notification = Message.builder()
+            .from(coord.agentId())
+            .toolAction(toolName)
+            .content(coord.sharedContext())
+            .priority(coord.priority() != null ? coord.priority() : &quot;normal&quot;)
+            .build();
+        
+        coord.notifyAgents().forEach(targetAgent -&gt; 
+            messageBus.send(targetAgent, notification)
+        );
+    }
+};
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h2 id=&quot;best-practices&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#best-practices&quot; aria-label=&quot;best practices permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Best Practices&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Keep augmented arguments focused&lt;/strong&gt;: Define only the fields you actually need to capture. Too many additional fields can increase token consumption and confuse the model.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Use descriptive field descriptions&lt;/strong&gt;: The &lt;code&gt;@ToolParam&lt;/code&gt; description is what the LLM sees. Clear, specific descriptions lead to better quality responses.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Consider required vs optional&lt;/strong&gt;: Mark fields as &lt;code&gt;required = true&lt;/code&gt; only when you absolutely need them. Optional fields give the LLM flexibility.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Monitor token usage&lt;/strong&gt;: Augmented schemas increase prompt size. Monitor token consumption, especially with many tools.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id=&quot;conclusion&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#conclusion&quot; aria-label=&quot;conclusion permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Conclusion&lt;/h2&gt;
+&lt;p&gt;The Tool Argument Augmenter provides a powerful, non-invasive way to capture LLM reasoning and metadata during tool execution. By dynamically extending tool schemas, you gain visibility into &lt;strong&gt;why&lt;/strong&gt; an LLM makes decisions—not just what decisions it makes.&lt;/p&gt;
+&lt;p&gt;This feature integrates seamlessly with Spring AI&apos;s existing tool calling infrastructure, working with both local &lt;code&gt;@Tool&lt;/code&gt; methods and MCP tools without requiring any changes to the underlying implementations.&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;? Try It Yourself&lt;/strong&gt;: The complete runnable demo is available in the &lt;a href=&quot;https://github.com/spring-projects/spring-ai-examples/tree/main/advisors/recursive-advisor-with-memory&quot;&gt;recursive-advisor-with-memory&lt;/a&gt; example project.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2 id=&quot;related-blog-posts&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#related-blog-posts&quot; aria-label=&quot;related blog posts permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Related Blog Posts&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https://spring.io/blog/2025/11/04/spring-ai-recursive-advisors&quot;&gt;Create Self-Improving AI Agents Using Spring AI Recursive Advisors&lt;/a&gt; - Learn how to build self-improving AI agents using recursive advisor patterns&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://spring.io/blog/2025/11/10/spring-ai-llm-as-judge-blog-post&quot;&gt;LLM-as-a-Judge Evaluation with Spring AI&lt;/a&gt; - Use LLMs to evaluate and assess AI response quality&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://spring.io/blog/2025/11/25/spring-ai-tool-response-formats&quot;&gt;Tool Response Formats in Spring AI&lt;/a&gt; - Control and customize how tool results are formatted and returned to the LLM&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://spring.io/blog/2025/12/11/spring-ai-tool-search-tools-tzolov&quot;&gt;Semantic Tool Search in Spring AI&lt;/a&gt; - Dynamically discover and select the right tools using semantic search&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id=&quot;resources&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#resources&quot; aria-label=&quot;resources permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Resources&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https://docs.spring.io/spring-ai/reference/2.0-SNAPSHOT/api/tools.html#tool-argument-augmentation&quot;&gt;&lt;strong&gt;Tool Argument Augmentation&lt;/strong&gt;&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Example Project&lt;/strong&gt;: &lt;a href=&quot;https://github.com/spring-projects/spring-ai-examples/tree/main/advisors/tool-argument-augmenter-demo&quot;&gt;tool-argument-augmenter-demo&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Spring AI Tool Calling&lt;/strong&gt;: &lt;a href=&quot;https://docs.spring.io/spring-ai/reference/api/tools.html&quot;&gt;Tools API Documentation&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Spring AI Chat Client&lt;/strong&gt;: &lt;a href=&quot;https://docs.spring.io/spring-ai/reference/api/chatclient.html&quot;&gt;ChatClient Documentation&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Spring AI Advisors&lt;/strong&gt;: &lt;a href=&quot;https://docs.spring.io/spring-ai/reference/api/advisors.html&quot;&gt;Advisors API Guide&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content:encoded></item></channel></rss>

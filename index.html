@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestion des personnes</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+    <h1>Gestion des personnes</h1>
+</header>
+
+<main>
+    <!-- Zone messages -->
+    <section id="messages"></section>
+
+    <!-- Liste des personnes -->
+    <section>
+        <h2>Liste des personnes</h2>
+        <button id="refreshBtn">Rafraîchir la liste</button>
+        <table id="personsTable">
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nom</th>
+                <th>Âge</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            <!-- lignes remplies dynamiquement -->
+            </tbody>
+        </table>
+    </section>
+
+    <!-- Formulaire ajout / modification -->
+    <section>
+        <h2 id="formTitle">Ajouter une personne</h2>
+        <form id="personForm">
+            <input type="hidden" id="personId">
+
+            <div class="form-group">
+                <label for="personName">Nom :</label>
+                <input type="text" id="personName" required>
+            </div>
+
+            <div class="form-group">
+                <label for="personAge">Âge :</label>
+                <input type="number" id="personAge" min="0" required>
+            </div>
+
+            <button type="submit" id="saveBtn">Ajouter</button>
+            <button type="button" id="cancelEditBtn" class="secondary" style="display:none;">
+                Annuler la modification
+            </button>
+        </form>
+    </section>
+
+    <!-- Recherche -->
+    <section>
+        <h2>Recherche</h2>
+
+        <div class="search-block">
+            <h3>Par ID</h3>
+            <input type="number" id="searchIdInput" placeholder="ID">
+            <button id="searchByIdBtn">Rechercher</button>
+            <div id="searchIdResult"></div>
+        </div>
+
+        <div class="search-block">
+            <h3>Par nom</h3>
+            <input type="text" id="searchNameInput" placeholder="Nom">
+            <button id="searchByNameBtn">Rechercher</button>
+            <div id="searchNameResult"></div>
+        </div>
+    </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
