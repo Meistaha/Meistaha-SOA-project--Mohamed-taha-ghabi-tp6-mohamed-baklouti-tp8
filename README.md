@@ -92,6 +92,6 @@ La ressource complète côté frontend est donc :
  🎥 Vidéo de démonstration
 
 Lien vers le github :  
-https://github.com/Meistaha/Meistaha-SOA-project--Mohamed-taha-ghabi-tp6-mohamed-baloukti-tp8/edit/main/README.md#L94C10-L94C49
+https://github.com/Meistaha/Meistaha-SOA-project--Mohamed-taha-ghabi-tp6-mohamed-baklouti-tp8/edit/main/README.md#L94C10-L94C49
 
 ce travail est realisé par mohamed taha ghabi tp6 et mohamed baklouti tp8
